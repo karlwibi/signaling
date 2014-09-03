@@ -1,0 +1,338 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta charset="utf-8">
+
+
+
+    <title>Untitled Document</title>
+
+</head>
+<body >
+
+<button onclick="start();">get User media</button>
+<div style="position: relative">
+<div > Insert Username :
+  <input type="text" id="userName" />
+  <h3>Local Video</h3>
+  <video id="localVideo"></video>
+</div>
+<div>
+  <h3>Remote Video</h3>
+  <video id="remoteVideo"></video>
+</div>
+<div id="chat">
+    <div id="messages"></div>
+    <input type="text" id="message_input" value="type here then hit enter..">
+</div>
+<button onClick="call()">Start or join Peer Connection</button>
+</div>
+
+<!-- reveal presentation-->
+<iframe style="position:relative;height: 100%;width: 100%;overflow:hidden" src="presentation.html"></iframe>
+
+
+<!-- Prezi Presentation-->
+<div id="prezi-player"></div>
+
+<!-- Script part-->
+<script src="/js/adapter.js"></script>
+<script src='https://cdn.firebase.com/v0/firebase.js'></script>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/prezi_player.js"></script>
+
+<script>
+var localVideo=document.getElementById("localVideo");
+var remoteVideo=document.getElementById("remoteVideo");
+var pc1,pc2;
+var localstream;
+var servers={"iceServers":[{"url":"stun:stun.l.google.com:19302"}]};
+var myDataRef;
+var socket = io.connect('http://localhost:9001');
+var sdpConstraints = {'mandatory': {
+                        'OfferToReceiveAudio':true, 
+                        'OfferToReceiveVideo':true }};
+
+function gotStream(stream){
+  trace("Received local stream");
+  // Call the polyfill wrapper to attach the media stream to this element.
+  attachMediaStream(localVideo, stream);
+  localstream = stream;
+}
+
+
+//initialize the Video Stream
+function start(){
+		getUserMedia({audio:true, video:true},
+                gotStream, function() {});	
+
+//myDataRef = new Firebase('https://webrtckarl.firebaseio.com/');
+//socket = io.connect('http://localhost:8181');
+}
+
+//start peer connection
+function call(){
+
+    document.getElementById("message_input").onkeydown = sendChat;
+    document.getElementById("message_input").onfocus = function() { this.value = ""; }
+
+ if (document.location.hash === "" || document.location.hash === undefined) {
+	 //offerer section
+offerer(localstream);	 
+	 
+ }else{//caller section
+
+answerer(localstream);
+	 
+ }
+	
+}
+
+//handle the offerer part
+function offerer(stream){
+    document.location.hash="#12304";
+    var	localCandidate;
+    pc1= new RTCPeerConnection(servers);
+
+
+   //initialize the presentation slide
+
+
+
+//add stream to offerer pear connecttion
+    pc1.addStream(stream);
+
+//add ice candidate 
+    pc1.onicecandidate=function(evt){
+        console.log("onicecandidate section");
+        console.log(evt.candidate);
+	 	localCandidate=evt.candidate;
+//send offer ice candidate to answerer candidate
+        //socket.emit('candidate', {type:'offerCandidate',value:JSON.stringify({candidate:evt.candidate})});
+        socket.emit('candidate', {type:'offerCandidate',value:JSON.stringify({candidate:evt.candidate})});
+// myDataRef.set({messages:'offerCandidate',value:JSON.stringify({"candidate":evt.candidate})});
+  };
+
+
+//when receive the remote stream
+pc1.onaddstream=gotRemoteStream;
+
+//caller is ready
+    socket.emit('addCaller', {type: 'caller',value:'join' });
+
+
+//myDataRef.set({messages:'join'});
+
+    socket.on('updatechat',function(username, data){
+        var message = username +": "+data;
+        receiveChat(message);
+    });
+
+
+socket.on('messages', function(data){
+
+    var signal=data;
+    if (signal.type=="calleeCandidate"){
+        var	iceCandidate= JSON.parse(signal.value);
+        console.log("offer receive candidate:");
+        console.log(iceCandidate.candidate);
+        if (iceCandidate.candidate!==null || signal.candidate!==localCandidate)
+            pc1.addIceCandidate(new RTCIceCandidate(iceCandidate.candidate),onAddIceCandidateSuccess,onAddIceCandidateError);
+
+    }else if(signal.type=="arrived"){
+        pc1.createOffer(function(desc) {
+            console.log("callee arrived. Going to create offer ");
+            //desc.sdp = desc.sdp.replace(/a=recvonly/g, "a=sendrecv");
+            // console.log(desc.sdp);
+            pc1.setLocalDescription(desc);
+            socket.emit('offer',{type:'offer',value:JSON.stringify({"sdp":desc})});
+            //myDataRef.set({value:JSON.stringify({"sdp":desc}), messages:'offer'});
+        }, log_error);
+
+    }else if(signal.type=="answer" ){
+        var input= JSON.parse(signal.value);
+        console.log("callee done. ");
+        console.log("offer receive sdp:");
+        console.log(input.sdp);
+        var remoteDescription = new RTCSessionDescription(input.sdp);
+        pc1.setRemoteDescription(remoteDescription);
+    }
+
+
+});
+
+
+
+
+}
+
+
+//handle the answerer part
+function answerer(stream){
+		var localCandidate;
+	pc2= new RTCPeerConnection(servers);
+
+	//add stream to offerer pear connecttion
+	pc2.addStream(stream);	
+
+	//add ice candidate 
+	pc2.onicecandidate=function(evt){
+        console.log("callee onicecandidate section");
+        console.log(evt.candidate);
+			localCandidate=evt.candidate;
+		//send offer ice candidate to answerer candidate
+        socket.emit('candidate',{type:'calleeCandidate',value:JSON.stringify({"candidate":evt.candidate})});
+	//	myDataRef.set({messages:'calleeCandidate',value:JSON.stringify({"candidate":evt.candidate})});
+	}
+
+
+	//when receive the remote stream
+	pc2.onaddstream=gotRemoteStream;
+
+	//callee is ready  
+    socket.emit('addCallee', {type: 'callee',value:'arrived' });
+
+    //myDataRef.set({messages:'arrived'});
+
+
+    socket.on('updatechat',function(username, data){
+     var message = username +": "+data;
+        receiveChat(message);
+    });
+
+    socket.on('messages', function(data){
+
+        var signal= data;
+        if (signal.type=="offerCandidate"){
+            var	iceCandidate= JSON.parse(signal.value);
+            console.log("caller receive candidate:");
+            console.log(iceCandidate.candidate);
+            if (iceCandidate.candidate!=null || signal.candidate!=localCandidate)
+                pc2.addIceCandidate(new RTCIceCandidate(iceCandidate.candidate),onAddIceCandidateSuccess,onAddIceCandidateError);
+
+        }else if(signal.type=="onOffer"){
+
+            var	input= JSON.parse(signal.value);
+
+            console.log("callee receive sdp:");
+            console.log(input.sdp);
+            //create a session with remote description
+            var remoteDescription = new RTCSessionDescription (input.sdp);//({type:'offer',sdp:sdp})
+
+            //set remote description
+            pc2.setRemoteDescription(remoteDescription);
+            console.log("creating answer and sending sdp description to offerer");
+
+            pc2.createAnswer(function(desc) {
+                pc2.setLocalDescription(desc);
+                socket.emit('answer',{value:JSON.stringify({"sdp":desc}), messages:'answer'});
+                //myDataRef.set({value:JSON.stringify({"sdp":desc}), messages:'answer'});
+            }, log_error);
+        }
+
+
+    });
+
+
+
+	/*myDataRef.on('value', function(snapshot) {
+	var signal= snapshot.val();
+if (signal.messages=="offerCandidate"){
+	var	iceCandidate= JSON.parse(signal.value);
+	console.log("caller receive candidate:");
+	console.log(iceCandidate.candidate);
+	if (iceCandidate.candidate!=null || signal.candidate!=localCandidate)
+	pc2.addIceCandidate(new RTCIceCandidate(iceCandidate.candidate),onAddIceCandidateSuccess,onAddIceCandidateError);
+			
+}else if(signal.messages=="offer"){
+
+		var	input= JSON.parse(signal.value);
+		
+		console.log("callee receive sdp:");
+		console.log(input.sdp);
+		//create a session with remote description
+		var remoteDescription = new RTCSessionDescription (input.sdp);//({type:'offer',sdp:sdp})
+		//set remote description
+        pc2.setRemoteDescription(remoteDescription);
+			console.log("creating answer and sending sdp description to offerer");
+		pc2.createAnswer(function(desc) {
+				
+            pc2.setLocalDescription(desc);
+            myDataRef.set({value:JSON.stringify({"sdp":desc}), messages:'answer'});
+        }, log_error);
+}
+});*/
+}
+//waitfor vieostream
+
+
+
+//error logging
+function log_error(messages){
+console.log(messages);	
+}
+
+function onAddIceCandidateSuccess() {
+  console.log("AddIceCandidate success.");
+}
+
+function onAddIceCandidateError(error) {
+    console.log("Failed to add Ice Candidate: " + error.toString());
+}
+function gotRemoteStream(e){
+  // Call the polyfill wrapper to attach the media stream to this element.
+  attachMediaStream(remoteVideo, e.stream);
+  console.log("Received remote stream");
+}
+
+function receiveChat(message){
+
+    var oldMessage= document.getElementById("messages").innerHTML;
+    document.getElementById("messages").innerHTML=oldMessage+"<br/>"+message;
+
+}
+
+function sendChat(e){
+    if (e.keyCode == 13){
+
+        var message = document.getElementById("message_input").value;
+
+        socket.emit("sendChat",message);
+    }
+
+
+
+}
+
+var player = new PreziPlayer('prezi-player', {
+    'preziId' : 'gmkxyjjkqnvf', 'controls': true
+});
+
+player.on(PreziPlayer.EVENT_IS_MOVING, function(event) {
+
+        console.log(player.getCurrentStep());
+socket.emit('onPreziChange', {value:player.getCurrentStep()});
+});
+
+socket.on('preziChange', function(data){
+
+    player.flyToStep(data.value);
+
+});
+
+/*
+
+ player.getStepCount()
+ player.getCurrentStep()
+ player.flyToNextStep()
+ player.flyToPreviousStep()
+ player.flyToStep(idx)
+ */
+
+</script>
+
+
+
+</body>
+
+</html>

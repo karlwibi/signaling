@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html>
+<head lang="en">
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
+    <meta name="apple-mobile-web-app-capable" content="yes"/>
+    <meta name="viewport" content="user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimal-ui"/>
+    <meta name="apple-mobile-web-app-status-bar-style" content="yes"/>
+
+    <link rel="stylesheet" href="../css/bootstrap.min.css"/>
+
+    <title> WebRTC Virtual Class</title>
+</head>
+<body onload="joinSession();">
+
+
+<div class="container">
+    <!-- Separate the page into two major colunm-->
+    <div class="row">
+
+        <div class="col-lg-2"> Ressource Column</div>
+        <div class="col-lg-10">
+            <!-- Separate in three row-->
+
+            <div class="row">
+
+                <div id="teacherVideoRow" class="col-lg-6">Teacher Video</div>
+                <div id="chatSectionRow" class="col-lg-4">chat Section</div>
+
+            </div>
+            <div id="presentationRow" class="row"> Presentation Row</div>
+            <div id="participantRow" class="row">
+                <h3 id="participantTitle">Room Participant</h3>
+            </div>
+
+        </div>
+    </div>
+
+</div>
+
+<!-- Section where the js Script are included-->
+
+<script src="../js/adapter.js"></script>
+<script src="../js/jquery-2.1.1.js"></script>
+<script src="../js/bootstrap.js"></script>
+<script src="../socket.io/socket.io.js"></script>
+<script src="../js/prezi_player.js"></script>
+<script src="../js/ConnectionSession.js"></script>
+<script src="../js/Participant.js"></script>
+
+<script>
+var teacherVideo = document.getElementById("teacherVideo");
+//var remoteVideo=document.getElementById("participantVideo");
+var connectionList = [];
+//var pc1, pc2;
+var localStream;
+var servers = {"iceServers": [
+    {"url": "stun:stun.l.google.com:19302"}
+]};
+var myDataRef;
+var socket = io.connect('http://localhost:9001');
+var sdpConstraints = {'mandatory': {
+    'OfferToReceiveAudio': true,
+    'OfferToReceiveVideo': true }};
+
+
+var localParticipant = new Participant();
+var i = 1; //counter for remote stream
+var roomId =<%= roomId % >;
+var userId =<%= userId % >;
+
+
+function joinSession() {
+    messageLog(socket.userid);
+    localParticipant.addId(userId);
+    messageLog(localParticipant.getId());
+
+    getUserMedia({audio: true, video: true},
+            attachLocalStream, function () {
+            });
+
+    messageLog("emitting to server that partipant is here");
+    socket.emit('participant', {type: 'join', participantId: localParticipant.userid, roomId: roomId });
+
+    socket.on('message', function (data) {
+
+        var signal = data;
+
+        if (data.type == "requestOffer") {
+
+            messageLog("offer requested from server");
+
+          //  socket.emit('offer', {connectionFlag: 'initiate'});
+
+             offer(localStream, socket, servers);
+
+        } else if (data.type == "requestAnswer") {
+
+
+            messageLog("answer requested for an offerer");
+
+            socket.emit('answer', {connectionFlag: 'Done'});
+        }
+
+    });
+
+}
+
+
+function offer(stream, socket, servers) {
+
+    var pc = new RTCPeerConnection(servers);
+    var participant = new Participant();
+
+    participant.addPeerConnection(pc);
+    connectionList.push(participant);
+
+    pc.addStream(stream);
+
+    //add ice candidate
+    pc.onicecandidate = function (evt) {
+
+        messageLog("onicecandidate section");
+        messageLog(evt.candidate);
+
+        //send  ice candidate
+        messageLog("sending candidate");
+        socket.emit('candidate', {type: 'Candidate', participantId: localParticipant.userid, value: JSON.stringify({candidate: evt.candidate})});
+
+    };
+
+    pc.createOffer(function (desc) {
+        console.log("offer requested from server. Now creating ");
+        //desc.sdp = desc.sdp.replace(/a=recvonly/g, "a=sendrecv");
+        // console.log(desc.sdp);
+        pc.setLocalDescription(desc);
+
+        socket.emit('offer', {type: 'offer', connectionFlag: 'initiate', value: JSON.stringify({"sdp": desc})});
+        //myDataRef.set({value:JSON.stringify({"sdp":desc}), messages:'offer'});
+    }, messageLog);
+
+    //when receive the remote stream
+    pc.onaddstream = attachRemoteStream;
+
+
+    socket.on('messages', function (data) {
+
+        var signal = data;
+        if (signal.type == "Candidate") {
+            var iceCandidate = JSON.parse(signal.value);
+            messageLog(" receive candidate on offer side:");
+            messageLog(iceCandidate.candidate);
+if(connectionList.length>0) {
+
+    for (var index in connectionList) {
+        if (connectionList[index].getUserId() != localParticipant.getUserId) {
+            messageLog("adding ice candidate information to peer");
+            connectionList[index].getPeerConnection().addIceCandidate(new RTCIceCandidate(iceCandidate.candidate), onAddIceCandidateSuccess, onAddIceCandidateError);
+
+        }
+    }
+}
+//            if (iceCandidate.candidate !== null || signal.candidate !== localCandidate)
+//                pc.addIceCandidate(new RTCIceCandidate(iceCandidate.candidate), onAddIceCandidateSuccess, onAddIceCandidateError);
+
+        } else if (signal.type == "answer") {
+            var input = JSON.parse(signal.value);
+
+            messageLog("SDP from answer party received:");
+            console.log(input.sdp);
+            var remoteDescription = new RTCSessionDescription(input.sdp);
+            pc.setRemoteDescription(remoteDescription);
+
+            messageLog("connection established!!!!");
+        }
+
+
+    });
+
+}
+
+/**
+ * this method handles all the answer
+ * actions for the participant browser
+ * when the participant is the callee
+ *
+ * @param stream
+ * @param socket
+ * @param servers
+ * @param sdp
+ */
+function answer(stream, socket, servers, sdp) {
+
+    var sessionID = 1;
+
+    var pc = new RTCPeerConnection(servers);
+
+    pc.addStream(stream);
+
+    //add ice candidate
+    pc.onicecandidate = function (evt) {
+
+        messageLog("onicecandidate section");
+        messageLog(evt.candidate);
+
+        //send  ice candidate
+
+        socket.emit('candidate', {type: 'Candidate', participantId: localParticipant.userid, value: JSON.stringify({candidate: evt.candidate})});
+
+    };
+
+    //when receive the remote stream
+    pc.onaddstream = gotRemoteStream;
+
+    messageLog("callee receive sdp:");
+    messageLog(sdp);
+
+    //create a session with remote description
+    var remoteDescription = new RTCSessionDescription(sdp);//({type:'offer',sdp:sdp})
+
+    //set remote description
+    pc.setRemoteDescription(remoteDescription);
+    console.log("creating answer and sending sdp description to offerer");
+
+    pc.createAnswer(function (desc) {
+        pc.setLocalDescription(desc);
+        socket.emit('answer', {value: JSON.stringify({"sdp": desc}), messages: 'answer'});
+        //myDataRef.set({value:JSON.stringify({"sdp":desc}), messages:'answer'});
+    }, messageLog);
+
+
+    socket.on('messages', function (data) {
+
+        var signal = data;
+        if (signal.type == "offerCandidate") {
+            var iceCandidate = JSON.parse(signal.value);
+            console.log("caller receive candidate:");
+            console.log(iceCandidate.candidate);
+            if (iceCandidate.candidate != null || signal.candidate != localCandidate)
+                pc.addIceCandidate(new RTCIceCandidate(iceCandidate.candidate), onAddIceCandidateSuccess, onAddIceCandidateError);
+
+        }
+
+    });
+
+}
+
+
+function attachLocalStream(stream) {
+    trace("Received local stream");
+    $('<video></video>', {
+        id: 'participantVideo' + localParticipant.getId()
+    }).appendTo('#participantRow');
+
+    //get the Newly created element and passed it
+    var localVideo = document.getElementById("participantVideo" + localParticipant.getId());
+    // Call the polyfill wrapper to attach the media stream to this element.
+
+    attachMediaStream(localVideo, stream);
+
+
+    localStream = stream;
+}
+
+function attachRemoteStream(e) {
+
+
+    trace("Received remote stream");
+    $('<video></video>', {
+        id: 'participantVideo' + i
+    }).appendTo('#participantRow');
+
+
+    var remoteVideo = document.getElementById("participantVideo" + i++);
+
+
+    // Call the polyfill wrapper to attach the media stream to this element.
+    attachMediaStream(remoteVideo, e.stream);
+    console.log("Received remote stream");
+}
+
+function onAddIceCandidateSuccess() {
+    console.log("AddIceCandidate success.");
+}
+
+function onAddIceCandidateError(error) {
+    console.log("Failed to add Ice Candidate: " + error.toString());
+}
+
+
+function messageLog(message) {
+    var date = new Date();
+    console.log(date.getDay() + " " + date.getHours() + ":" + date.getTime() + " Logging message : " + message)
+
+}
+
+
+</script>
+</body>
+</html>

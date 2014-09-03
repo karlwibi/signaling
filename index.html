@@ -1,0 +1,265 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Untitled Document</title>
+<script>
+var getUserMedia;
+var configuration={"iceServers":[{"url":"stun:stun.l.google.com:19302"}]};
+var localCandidate;
+var user_id;
+var streamToAttach;
+var video;
+var setVideo;
+var peerConnection;
+var sessionDescription;
+var RTC_Ice_Candidate;
+var myDataRef;
+var sdpConstraints = {
+            mandatory: {
+            OfferToReceiveAudio: true,
+            OfferToReceiveVideo: true
+        }
+    };
+
+
+
+function hasGetUserMedia() {
+  return !!(navigator.getUserMedia || navigator.webkitGetUserMedia ||
+            navigator.mozGetUserMedia || navigator.msGetUserMedia);
+}
+
+if (hasGetUserMedia()) {
+  
+ if ( navigator.getUserMedia){
+	getUserMedia=navigator.getUserMedia.bind(navigator);
+	setVideo=function(stream, media){
+	
+	media.SrcObject = stream;
+	waitUntilRemoteStreamStartsFlowing(media);
+	media.play();
+
+	}
+	    
+	 
+ }else if (navigator.webkitGetUserMedia){
+	getUserMedia=navigator.webkitGetUserMedia.bind(navigator);
+	
+	setVideo=function(stream, media){
+	media.src = webkitURL.createObjectURL(stream);
+		waitUntilRemoteStreamStartsFlowing(media);
+	media.play();};
+	
+	peerConnection=webkitRTCPeerConnection;
+	sessionDescription=RTCSessionDescription;
+	RTC_Ice_Candidate=RTCIceCandidate; 
+	
+ }else if(navigator.mozGetUserMedia){
+ getUserMedia=navigator.mozGetUserMedia.bind(navigator);
+	setVideo=function(stream, media){
+	media.mozSrcObject = stream;
+		waitUntilRemoteStreamStartsFlowing(media);
+	media.play();};
+	
+	peerConnection=mozRTCPeerConnection;
+	sessionDescription=mozRTCSessionDescription;
+	RTC_Ice_Candidate=mozRTCIceCandidate; 
+ }
+  
+} else {
+  alert('getUserMedia() is not supported in your browser');
+}
+
+
+
+function offer(){
+
+myDataRef = new Firebase('https://webrtckarl.firebaseio.com/');
+
+video = document.getElementById('localVideo');
+video2= document.getElementById('remoteVideo');
+
+
+
+// create  ice candidate
+var peer = new peerConnection(configuration);    
+ 
+ 
+ //create ice candidate
+ peer.onicecandidate=function(evt){
+	console.log(evt.candidate);
+	localCandidate=evt.candidate;
+ myDataRef.set({type:'iceCandidate',value:JSON.stringify({candidate:evt.candidate})});
+ 
+ }
+ 
+ //add remote stream
+ 
+ peer.onaddstream=function(evt){handleIncomingStream(evt.stream)};
+ 
+ //attach local media
+ 
+//add local user media
+getUserMedia({ audio: true, video: true }, function (stream) {
+    
+	
+	
+	setVideo(stream, video);
+	
+	peer.addStream(stream);
+	 streamToAttach = stream;
+	 console.log("adding media");
+	console.log(streamToAttach);
+},log_error);
+
+// peer.addStream(streamToAttach);
+ 
+
+ if (document.location.hash === "" || document.location.hash === undefined) {
+	 
+	 document.location.hash="#12304";
+	 myDataRef.set({message:'join'});
+	 
+	 myDataRef.on('value', function(snapshot) {
+	var response=snapshot.val();
+	if (response.message=="arrived"){
+
+	//peer.addStream(streamToAttach);
+	
+	//var numberOfLocalMediaAttached = peer.getLocalStreams().length;
+//
+//	console.log( "Number of caller local media attached "+numberOfLocalMediaAttached );
+
+	//creatte offer
+	peer.createOffer(function(offerSDP) {
+        
+		//offerSDP.sdp = offerSDP.sdp.replace(/a=recvonly/g, "a=sendrecv");
+		peer.setLocalDescription(offerSDP);
+        myDataRef.set({value:
+			JSON.stringify({sdp:offerSDP}), type:'offer'});
+    }, log_error, sdpConstraints);
+
+}else if (response.type=="iceCandidate"){
+			var	signal= JSON.parse(response.value);
+			console.log("caller receive candidate:");
+		console.log(signal.candidate);
+			if (signal.candidate!==null || signal.candidate!==localCandidate)
+			peer.addIceCandidate(new RTC_Ice_Candidate(signal.candidate));
+			}else if(response.type=="answer"){
+		var signal= JSON.parse(response.value);
+
+console.log("caller receive sdp:");
+console.log(signal.sdp);
+
+	var remoteDescription = new sessionDescription(signal.sdp);
+	peer.setRemoteDescription(remoteDescription);
+}
+
+});
+	 
+ }else{
+	
+	myDataRef.on('value', function(snapshot) {
+			var response=snapshot.val();
+		if (response.message=="join"){
+			
+			myDataRef.set({message:'arrived'});
+			console.log("i'm the callee")	;
+			
+		}else if (response.type=="iceCandidate"){
+			var	signal= JSON.parse(response.value);
+			console.log("callee receive candidate:");
+		console.log(signal.candidate);
+			if (signal.candidate!=null || signal.candidate!=localCandidate)
+			peer.addIceCandidate(new RTC_Ice_Candidate(signal.candidate));
+			}
+		
+		else if (response.type=="offer"){
+		
+		//var numberOfLocalMediaAttached = peer.getLocalStreams().length;
+//
+//	console.log( "Number of callee local media attached "+numberOfLocalMediaAttached );
+			
+		var	signal= JSON.parse(response.value);
+		console.log("callee receive sdp:");
+		console.log(signal.sdp);
+		//create a session with remote description
+		var remoteDescription = new sessionDescription(signal.sdp);
+		//set remote description
+        peer.setRemoteDescription(remoteDescription);
+		
+		//peer.addStream(streamToAttach);
+//		
+//		var numberOfLocalMediaAttached = peer.getLocalStreams().length;
+//
+//		console.log( "Number of local media attached "+numberOfLocalMediaAttached );
+		
+		peer.createAnswer(function(answerSDP) {
+				console.log("callee receive sdp:");
+		console.log(signal.sdp);
+	
+            peer.setLocalDescription(answerSDP);
+            myDataRef.set({value:
+			JSON.stringify({
+            sdp:answerSDP
+        }), type:'answer'
+          
+        });
+        }, log_error, sdpConstraints);
+
+		
+		}
+	
+
+
+});
+	 
+ }
+
+
+}
+
+
+
+
+function waitUntilRemoteStreamStartsFlowing( video)
+{
+    if (!(video.readyState <= HTMLMediaElement.HAVE_CURRENT_DATA 
+        || video.paused || video.currentTime <= 0)) 
+    {
+        // remote stream started flowing!
+    } 
+    else setTimeout(waitUntilRemoteStreamStartsFlowing, 50);
+}
+
+
+function handleIncomingStream(stream){
+var video2=document.getElementById('remoteVideo');
+setVideo(stream, video2);
+
+}
+
+function log_error(message){
+console.log(message);	
+}
+
+</script>
+</head>
+
+<body>
+<div> Insert Username :
+  <input type="text" id="userName" />
+  <h3>Local Video</h3>
+  <video id="localVideo"></video>
+</div>
+<div>
+  <h3>Remote Video</h3>
+  <video id="remoteVideo"></video>
+</div>
+<button onClick="offer()">Start or join Peer Connection</button>
+
+
+<script src="http://www.webrtc-experiment.com/RTCMultiConnection-v1.6.js"></script> 
+<script src='https://cdn.firebase.com/v0/firebase.js'></script>
+</body>
+</html>
