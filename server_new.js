@@ -187,6 +187,9 @@ io.sockets.on('connection', function (socket) {
 
         messageLog("answer receive from :" + socket.userid);
 
+        tempConnectionSession.setRemoteSDP(JSON.parse(data.value));
+
+        io.sockets.socket(data.to).emit('messages', {type: "answer", value:JSON.stringify(tempConnectionSession.getRemoteSDP())});
         connectionFlag = data.connectionFlag;
 //        if (data.type == 'callee') {
 //            socket.username = 'callee';
