@@ -51,7 +51,8 @@
 <script>
 var teacherVideo = document.getElementById("teacherVideo");
 //var remoteVideo=document.getElementById("participantVideo");
-var connectionList = [];
+var offerConnectionList = [];
+var answerConnectionList=[];
 //var pc1, pc2;
 var localStream;
 var servers = {"iceServers": [
@@ -99,7 +100,9 @@ function joinSession() {
 
             messageLog("answer requested for an offerer");
 
-            socket.emit('answer', {connectionFlag: 'Done'});
+            //socket.emit('answer', {connectionFlag: 'establishing'});
+
+            answer(localStream,socket,servers,JSON.parse(data.value),data.offerId);
         }
 
     });
@@ -113,7 +116,7 @@ function offer(stream, socket, servers) {
     var participant = new Participant();
 
     participant.addPeerConnection(pc);
-    connectionList.push(participant);
+    offerConnectionList.push(participant);
 
     pc.addStream(stream);
 
@@ -146,16 +149,16 @@ function offer(stream, socket, servers) {
     socket.on('messages', function (data) {
 
         var signal = data;
-        if (signal.type == "Candidate") {
+        if (signal.type == "candidate") {
             var iceCandidate = JSON.parse(signal.value);
             messageLog(" receive candidate on offer side:");
             messageLog(iceCandidate.candidate);
-if(connectionList.length>0) {
+if(offerConnectionList.length>0) {
 
-    for (var index in connectionList) {
-        if (connectionList[index].getUserId() != localParticipant.getUserId) {
+    for (var index in offerConnectionList) {
+        if (offerConnectionList[index].getUserId() != localParticipant.getUserId) {
             messageLog("adding ice candidate information to peer");
-            connectionList[index].getPeerConnection().addIceCandidate(new RTCIceCandidate(iceCandidate.candidate), onAddIceCandidateSuccess, onAddIceCandidateError);
+            offerConnectionList[index].getPeerConnection().addIceCandidate(new RTCIceCandidate(iceCandidate.candidate), onAddIceCandidateSuccess, onAddIceCandidateError);
 
         }
     }
@@ -164,6 +167,8 @@ if(connectionList.length>0) {
 //                pc.addIceCandidate(new RTCIceCandidate(iceCandidate.candidate), onAddIceCandidateSuccess, onAddIceCandidateError);
 
         } else if (signal.type == "answer") {
+
+            var remoteParticipant={}
             var input = JSON.parse(signal.value);
 
             messageLog("SDP from answer party received:");
@@ -172,6 +177,10 @@ if(connectionList.length>0) {
             pc.setRemoteDescription(remoteDescription);
 
             messageLog("connection established!!!!");
+            socket.emit('established',{connectionFlag: 'Done'});
+
+
+
         }
 
 
@@ -189,11 +198,15 @@ if(connectionList.length>0) {
  * @param servers
  * @param sdp
  */
-function answer(stream, socket, servers, sdp) {
+function answer(stream, socket, servers, sdp, offerId) {
 
-    var sessionID = 1;
 
     var pc = new RTCPeerConnection(servers);
+    var participant = new Participant();
+
+    participant.addPeerConnection(pc);
+    answerConnectionList.push(participant);
+
 
     pc.addStream(stream);
 
@@ -213,10 +226,10 @@ function answer(stream, socket, servers, sdp) {
     pc.onaddstream = gotRemoteStream;
 
     messageLog("callee receive sdp:");
-    messageLog(sdp);
+    messageLog(sdp.sdp);
 
     //create a session with remote description
-    var remoteDescription = new RTCSessionDescription(sdp);//({type:'offer',sdp:sdp})
+    var remoteDescription = new RTCSessionDescription(sdp.sdp);//({type:'offer',sdp:sdp})
 
     //set remote description
     pc.setRemoteDescription(remoteDescription);
@@ -224,7 +237,8 @@ function answer(stream, socket, servers, sdp) {
 
     pc.createAnswer(function (desc) {
         pc.setLocalDescription(desc);
-        socket.emit('answer', {value: JSON.stringify({"sdp": desc}), messages: 'answer'});
+       messageLog("sending an answer to : "+offerId );
+        socket.emit('answer', {value: JSON.stringify({"sdp": desc}),type: 'answer', connectionFlag: 'Establishing',from:localParticipant.getUserId(), to:offerId});
         //myDataRef.set({value:JSON.stringify({"sdp":desc}), messages:'answer'});
     }, messageLog);
 
@@ -232,12 +246,24 @@ function answer(stream, socket, servers, sdp) {
     socket.on('messages', function (data) {
 
         var signal = data;
-        if (signal.type == "offerCandidate") {
+        if (signal.type == "candidate") {
             var iceCandidate = JSON.parse(signal.value);
             console.log("caller receive candidate:");
             console.log(iceCandidate.candidate);
-            if (iceCandidate.candidate != null || signal.candidate != localCandidate)
-                pc.addIceCandidate(new RTCIceCandidate(iceCandidate.candidate), onAddIceCandidateSuccess, onAddIceCandidateError);
+
+            if(answerConnectionList.length>0) {
+
+                for (var index in answerConnectionList) {
+                    if (answerConnectionList[index].getUserId() != localParticipant.getUserId) {
+                        messageLog("adding ice candidate information to peer");
+                        answerConnectionList[index].getPeerConnection().addIceCandidate(new RTCIceCandidate(iceCandidate.candidate), onAddIceCandidateSuccess, onAddIceCandidateError);
+
+                    }
+                }
+            }
+
+//            if (iceCandidate.candidate != null || signal.candidate != localCandidate)
+//                pc.addIceCandidate(new RTCIceCandidate(iceCandidate.candidate), onAddIceCandidateSuccess, onAddIceCandidateError);
 
         }
 

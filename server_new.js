@@ -155,14 +155,22 @@ io.sockets.on('connection', function (socket) {
     });
 
     socket.on('candidate', function (data) {
-        console.log("got a candidate");
+        console.log("receive and broadcasting a candidate");
+
+            socket.broadcast.emit('messages',{type:'candidate', value: data.value});
+           });
+
+    socket.on('established', function (data) {
+        connectionFlag = data.connectionFlag; //set the connection flag to Done
+
     });
+
 
 
     socket.on('offer', function (data) {
 
         messageLog("offer receive from: " + socket.userid);
-
+        tempConnectionSession.setLocalSDP(JSON.parse(data.value));
         connectionFlag = data.connectionFlag;
 
 //        if (data.type == 'caller') {
@@ -271,9 +279,9 @@ function getUserInfo() {
         var req = http.request(options, function (res) {
 //        console.log('STATUS: ' + res.statusCode);
             //      console.log('HEADERS: ' + JSON.stringify(res.headers));
-            res.setEncoding('utf8');
+        res.setEncoding('utf8');
 
-            res.on('data', function (chunk) {
+        res.on('data', function (chunk) {
                 console.log('BODY: ' + chunk);
             });
         }).end();
@@ -489,7 +497,7 @@ function connectionHandler() {
 
                     tempConnectionSession.setRemoteSocketID(tempRoomParticipantAvailableList[0].getSocketID());//setting te
                     tempConnectionSession.addRemoteParticipant(tempRoomParticipantAvailableList[0]);//adding the remote participant information
-                    io.sockets.socket(tempConnectionSession.getRemoteSocketID()).emit('message', {type: "requestAnswer"});
+                    io.sockets.socket(tempConnectionSession.getRemoteSocketID()).emit('message', {type: "requestAnswer", offerId:tempConnectionSession.getLocalSocketID(),value:JSON.stringify(tempConnectionSession.getLocalSDP())});
                     messageLog("-------------------------------------------------------");
                     messageLog("retrieve the counter for the room");
                     messageLog("-------------------------------------------------------");
