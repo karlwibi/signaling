@@ -157,7 +157,7 @@ io.sockets.on('connection', function (socket) {
     socket.on('candidate', function (data) {
         console.log("receive and broadcasting a candidate");
 
-            socket.broadcast.emit('messages',{type:'candidate', value: data.value});
+            socket.broadcast.emit('messages',{type:'candidate', value: data.value, participantId:data.participantId});
            });
 
     socket.on('established', function (data) {
@@ -170,7 +170,8 @@ io.sockets.on('connection', function (socket) {
     socket.on('offer', function (data) {
 
         messageLog("offer receive from: " + socket.userid);
-        tempConnectionSession.setLocalSDP(JSON.parse(data.value));
+        var input=JSON.parse(data.value)
+        tempConnectionSession.setLocalSDP(input.sdp);
         connectionFlag = data.connectionFlag;
 
 //        if (data.type == 'caller') {
@@ -186,10 +187,11 @@ io.sockets.on('connection', function (socket) {
 
 
         messageLog("answer receive from :" + socket.userid);
+        var input=JSON.parse(data.value);
 
-        tempConnectionSession.setRemoteSDP(JSON.parse(data.value));
+        tempConnectionSession.setRemoteSDP(input.sdp);
 
-        io.sockets.socket(data.to).emit('messages', {type: "answer", value:JSON.stringify(tempConnectionSession.getRemoteSDP())});
+        io.sockets.socket(data.to).emit('messages', {type: "answer", value:data.value, participantId:tempConnectionSession.getRemoteParticipant().getUserId()});
         connectionFlag = data.connectionFlag;
 //        if (data.type == 'callee') {
 //            socket.username = 'callee';
@@ -500,7 +502,7 @@ function connectionHandler() {
 
                     tempConnectionSession.setRemoteSocketID(tempRoomParticipantAvailableList[0].getSocketID());//setting te
                     tempConnectionSession.addRemoteParticipant(tempRoomParticipantAvailableList[0]);//adding the remote participant information
-                    io.sockets.socket(tempConnectionSession.getRemoteSocketID()).emit('message', {type: "requestAnswer", offerId:tempConnectionSession.getLocalSocketID(),value:JSON.stringify(tempConnectionSession.getLocalSDP())});
+                    io.sockets.socket(tempConnectionSession.getRemoteSocketID()).emit('message', {type: "requestAnswer", participantId:tempConnectionSession.getLocalParticipant().getUserId(),offerId:tempConnectionSession.getLocalSocketID(),value:JSON.stringify(tempConnectionSession.getLocalSDP())});
                     messageLog("-------------------------------------------------------");
                     messageLog("retrieve the counter for the room");
                     messageLog("-------------------------------------------------------");
